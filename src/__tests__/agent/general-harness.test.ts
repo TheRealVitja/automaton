@@ -120,7 +120,10 @@ describe("agent/GeneralHarness", () => {
   });
 
   it("routes the web_fetch SPEC alias through the current x402_fetch surface", async () => {
-    const { harness, appDb } = await createHarness();
+    const tools = createBuiltinTools(createTestIdentity().sandboxId);
+    const fetchTool = tools.find((tool) => tool.name === "x402_fetch")!;
+    fetchTool.execute = async (args) => `Fetched ${args.url}`;
+    const { harness, appDb } = await createHarness({ toolCatalog: tools });
     const aliasTool = harness.getToolDefs().find((tool) => tool.name === "web_fetch");
     const wrappedTool = harness.getToolDefs().find((tool) => tool.name === "x402_fetch");
 

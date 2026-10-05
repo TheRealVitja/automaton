@@ -30,7 +30,8 @@ Conway Automaton CLI - Creator Tools
 Usage:
   automaton-cli status              Show automaton status
   automaton-cli logs [--tail N]     View automaton logs
-  automaton-cli fund <amount> [--to 0x...]  Transfer Conway credits
+  automaton-cli fund <amount>        Buy credits with wallet USDC
+  automaton-cli fund <amount> --to 0x...  Transfer existing Conway credits
   automaton-cli send <to-address> <message> Send a social message
 `);
   }

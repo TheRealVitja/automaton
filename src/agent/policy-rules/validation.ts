@@ -7,7 +7,7 @@
 
 import type { PolicyRule, PolicyRequest, PolicyRuleResult } from "../../types.js";
 
-const PACKAGE_NAME_RE = /^[@a-zA-Z0-9._/-]+$/;
+const PACKAGE_NAME_RE = /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SKILL_NAME_RE = /^[a-zA-Z0-9-]+$/;
 const GIT_HASH_RE = /^[a-f0-9]{7,40}$/;
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;

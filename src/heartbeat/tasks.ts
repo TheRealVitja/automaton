@@ -75,6 +75,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         name: taskCtx.config.name,
         address: taskCtx.identity.address,
         creditsCents: credits,
+        db: taskCtx.db,
         fundingHint:
           "Use credit transfer API from a creator runtime to top this wallet up.",
         timestamp: new Date().toISOString(),
@@ -173,6 +174,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         apiUrl: taskCtx.config.conwayApiUrl,
         account: taskCtx.identity.account,
         creditsCents: credits,
+        db: taskCtx.db,
         chainType: taskCtx.config.chainType || taskCtx.identity.chainType || "evm",
       });
 

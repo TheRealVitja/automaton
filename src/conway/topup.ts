@@ -17,8 +17,12 @@ import type { PrivateKeyAccount, Address } from "viem";
 import { x402Fetch, getUsdcBalance } from "./x402.js";
 import { createLogger } from "../observability/logger.js";
 import type { ChainType } from "../identity/chain.js";
+import type { AutomatonDatabase } from "../types.js";
+import { createHash, randomUUID } from "node:crypto";
 
 const logger = createLogger("topup");
+const recentIntents = new Map<string, string>();
+const TOPUP_COOLDOWN_MS = 5 * 60_000;
 
 /** Valid topup tier amounts in USD. */
 export const TOPUP_TIERS = [5, 25, 100, 500, 1000, 2500];
@@ -41,16 +45,44 @@ export async function topupCredits(
   account: PrivateKeyAccount,
   amountUsd: number,
   recipientAddress?: Address,
+  db?: AutomatonDatabase,
 ): Promise<TopupResult> {
+  if (!TOPUP_TIERS.includes(amountUsd)) {
+    return { success: false, amountUsd, error: "Invalid credit topup tier" };
+  }
   const address = recipientAddress || account.address;
   const url = `${apiUrl}/pay/${amountUsd}/${address}`;
+  // Claim before the first await. SQLite serializes claims across processes;
+  // all bootstrap, heartbeat and tool paths share the same payer/recipient key.
+  const key = `topup_intent:${createHash("sha256").update(`${new URL(apiUrl).origin}:${account.address.toLowerCase()}:${address.toLowerCase()}`).digest("hex")}`;
+  const intent = { id: randomUUID(), state: "in_flight", createdAt: Date.now() };
+  const claim = () => {
+    const saved = db ? db.getKV(key) : recentIntents.get(key);
+    if (saved) {
+      const previous = JSON.parse(saved);
+      if (previous.state === "in_flight" || previous.state === "unknown") {
+        return "Previous credit topup has an unresolved payment outcome; reconcile it before another purchase.";
+      }
+      if (Date.now() - previous.createdAt < TOPUP_COOLDOWN_MS) {
+        return "Credit topup cooldown: refresh the credit balance before another purchase.";
+      }
+    }
+    const value = JSON.stringify(intent);
+    if (db) db.setKV(key, value); else recentIntents.set(key, value);
+    return null;
+  };
+  const blocked = db ? db.raw.transaction(claim).immediate() : claim();
+  if (blocked) return { success: false, amountUsd, error: blocked };
 
   logger.info(`Attempting credit topup: $${amountUsd} USD for ${address}`);
 
-  const result = await x402Fetch(url, account, "GET");
+  const result = await x402Fetch(url, account, "GET", undefined, undefined, amountUsd * 100, "evm", intent.id);
+  const state = result.success ? "succeeded" : result.paymentAttempted ? "unknown" : "failed";
+  const saved = JSON.stringify({ ...intent, state, amountUsd, error: result.error, status: result.status });
+  if (db) db.setKV(key, saved); else recentIntents.set(key, saved);
 
   if (!result.success) {
-    logger.error(`Credit topup failed: ${result.error}`);
+    logger.error(`Credit topup failed: ${result.error || `HTTP ${result.status}: ${JSON.stringify(result.response)}`}`);
     return {
       success: false,
       amountUsd,
@@ -83,6 +115,7 @@ export async function topupForSandbox(params: {
   account: PrivateKeyAccount;
   error: Error & { status?: number; responseText?: string };
   chainType?: ChainType;
+  db?: AutomatonDatabase;
 }): Promise<TopupResult | null> {
   const { apiUrl, account, error, chainType } = params;
 
@@ -134,7 +167,7 @@ export async function topupForSandbox(params: {
   }
 
   logger.info(`Sandbox topup: deficit=${deficitCents}c, buying $${selectedTier} tier`);
-  return topupCredits(apiUrl, account, selectedTier);
+  return topupCredits(apiUrl, account, selectedTier, undefined, params.db);
 }
 
 /**
@@ -151,6 +184,7 @@ export async function bootstrapTopup(params: {
   creditsCents: number;
   creditThresholdCents?: number;
   chainType?: ChainType;
+  db?: AutomatonDatabase;
 }): Promise<TopupResult | null> {
   const { apiUrl, account, creditsCents, creditThresholdCents = 500, chainType } = params;
 
@@ -188,5 +222,5 @@ export async function bootstrapTopup(params: {
     `Bootstrap topup: credits=$${(creditsCents / 100).toFixed(2)}, USDC=$${usdcBalance.toFixed(2)}, buying $${minTier}`,
   );
 
-  return topupCredits(apiUrl, account, minTier);
+  return topupCredits(apiUrl, account, minTier, undefined, params.db);
 }

@@ -1,15 +1,16 @@
 /**
  * automaton-cli fund <amount> [--to 0x...]
  *
- * Transfer Conway credits using the configured Conway API key.
+ * Buy credits with wallet USDC, or transfer credits to another wallet.
  */
 
-import { loadConfig } from "@conway/automaton/config.js";
+import { loadConfig, resolvePath } from "@conway/automaton/config.js";
 
 const args = process.argv.slice(3);
 const amount = args[0];
 const toIndex = args.indexOf("--to");
 const toAddress = toIndex >= 0 ? args[toIndex + 1] : undefined;
+if (toIndex >= 0 && !toAddress) throw new Error("--to requires a destination address");
 
 if (!amount) {
   console.log("Usage: automaton-cli fund <amount> [--to 0x...]");
@@ -25,18 +26,42 @@ if (!config) {
   process.exit(1);
 }
 
-if (!config.conwayApiKey) {
+if (!config.conwayApiKey && toAddress && toAddress.toLowerCase() !== config.walletAddress.toLowerCase()) {
   console.log("No Conway API key found in automaton config.");
   process.exit(1);
 }
 
 const amountCents = parseAmountToCents(amount);
-if (amountCents <= 0) {
+if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
   console.log(`Invalid amount: ${amount}`);
   process.exit(1);
 }
 
 const destination = toAddress || config.walletAddress;
+
+if (destination.toLowerCase() === config.walletAddress.toLowerCase()) {
+  // This key belongs to the agent: transferring its credits back to itself
+  // cannot fund it. Convert wallet USDC to credits through the topup path.
+  const { getWallet } = await import("@conway/automaton/identity/wallet.js");
+  const { topupCredits, TOPUP_TIERS } = await import("@conway/automaton/conway/topup.js");
+  const { createDatabase } = await import("@conway/automaton/state/database.js");
+  const amountUsd = amountCents / 100;
+  if (!TOPUP_TIERS.includes(amountUsd)) {
+    throw new Error(`Self-funding uses USDC topup tiers: ${TOPUP_TIERS.join(", ")} USD`);
+  }
+  const { account, chainType } = await getWallet();
+  if (chainType !== "evm") throw new Error("USDC x402 topup requires an EVM wallet");
+  if (account.address.toLowerCase() !== destination.toLowerCase()) throw new Error("Configured wallet does not match the loaded wallet");
+  const db = createDatabase(resolvePath(config.dbPath));
+  try {
+    const result = await topupCredits(config.conwayApiUrl, account, amountUsd, undefined, db);
+    if (!result.success) throw new Error(result.error || "Credit topup failed");
+    console.log(`Purchased $${amountUsd.toFixed(2)} Conway credits using wallet USDC.`);
+  } finally {
+    db.close();
+  }
+  process.exit(0);
+}
 
 const payload = {
   to_address: destination,
@@ -58,6 +83,7 @@ for (const path of paths) {
       Authorization: config.conwayApiKey,
     },
     body: JSON.stringify(payload),
+    redirect: "error",
   });
 
   if (!resp.ok) {

@@ -47,6 +47,11 @@ function makeEvent(index: number, overrides?: Partial<StreamEvent>): StreamEvent
 }
 
 describe("createTokenCounter", () => {
+  it.each(["x".repeat(500_000), "x".repeat(1500)])("bounds repetitive input without retaining it in the cache", (text) => {
+    const counter = createTokenCounter();
+    expect(counter.countTokens(text)).toBeGreaterThan(0);
+    expect(counter.cache.size).toBe(0);
+  });
   it("createTokenCounter returns a working counter", () => {
     const counter = createTokenCounter();
 

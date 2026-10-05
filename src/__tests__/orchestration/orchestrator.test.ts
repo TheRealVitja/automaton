@@ -7,6 +7,8 @@ import type { MessageTransport } from "../../orchestration/messaging.js";
 import { ColonyMessaging } from "../../orchestration/messaging.js";
 import type { AutomatonDatabase } from "../../types.js";
 import { createInMemoryDb } from "./test-db.js";
+import { SimpleAgentTracker } from "../../orchestration/simple-tracker.js";
+import { createDatabase } from "../../state/database.js";
 
 // ─── Fixtures ───────────────────────────────────────────────────
 
@@ -171,6 +173,28 @@ describe("orchestration/Orchestrator", () => {
 
   afterEach(() => {
     db.close();
+  });
+
+  it.each(["assigned", "running"])("retires a dead local worker with a %s task before reassignment (#259)", async (status) => {
+    const runtimeDb = createDatabase(":memory:");
+    try {
+      const goalId = insertGoal(runtimeDb.raw);
+      const deadAddress = "local://previous-process";
+      runtimeDb.insertChild({ id: "stale", name: "stale", address: deadAddress, sandboxId: "stale",
+        genesisPrompt: "test", fundedAmountCents: 0, status: "running", createdAt: new Date().toISOString() });
+      const taskId = insertTask(runtimeDb.raw, { goalId, status, assignedTo: deadAddress });
+      setOrchestratorState(runtimeDb.raw, { phase: "executing", goalId, replanCount: 0, failedTaskId: null, failedError: null });
+      const tracker = new SimpleAgentTracker(runtimeDb);
+      const { messaging } = makeMessaging(runtimeDb.raw);
+      const orchestrator = new Orchestrator({ db: runtimeDb.raw, agentTracker: tracker, funding: makeFunding(),
+        messaging, inference: makeInference() as any, identity: IDENTITY,
+        isWorkerAlive: () => false, config: { disableSpawn: true } });
+      await orchestrator.tick();
+      expect(runtimeDb.getChildById("stale")?.status).toBe("dead");
+      const task = runtimeDb.raw.prepare("SELECT assigned_to FROM task_graph WHERE id = ?").get(taskId) as any;
+      expect(task.assigned_to).not.toBe(deadAddress);
+      expect(tracker.getIdle()).toHaveLength(0);
+    } finally { runtimeDb.close(); }
   });
 
   // ─── tick() phase transitions ────────────────────────────────

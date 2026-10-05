@@ -99,7 +99,7 @@ function createTransferMaxSingleRule(policy: TreasuryPolicy): PolicyRule {
     id: "financial.transfer_max_single",
     description: `Deny transfers above ${policy.maxSingleTransferCents} cents`,
     priority: 500,
-    appliesTo: { by: "name", names: ["transfer_credits"] },
+    appliesTo: { by: "name", names: ["transfer_credits", "fund_child"] },
     evaluate(request: PolicyRequest): PolicyRuleResult | null {
       const amount = request.args.amount_cents as number | undefined;
       if (amount === undefined) return null;
@@ -125,7 +125,7 @@ function createTransferHourlyCapRule(policy: TreasuryPolicy): PolicyRule {
     id: "financial.transfer_hourly_cap",
     description: `Deny if hourly transfers exceed ${policy.maxHourlyTransferCents} cents`,
     priority: 500,
-    appliesTo: { by: "name", names: ["transfer_credits"] },
+    appliesTo: { by: "name", names: ["transfer_credits", "fund_child"] },
     evaluate(request: PolicyRequest): PolicyRuleResult | null {
       const amount = request.args.amount_cents as number | undefined;
       if (amount === undefined) return null;
@@ -154,7 +154,7 @@ function createTransferDailyCapRule(policy: TreasuryPolicy): PolicyRule {
     id: "financial.transfer_daily_cap",
     description: `Deny if daily transfers exceed ${policy.maxDailyTransferCents} cents`,
     priority: 500,
-    appliesTo: { by: "name", names: ["transfer_credits"] },
+    appliesTo: { by: "name", names: ["transfer_credits", "fund_child"] },
     evaluate(request: PolicyRequest): PolicyRuleResult | null {
       const amount = request.args.amount_cents as number | undefined;
       if (amount === undefined) return null;
@@ -195,14 +195,11 @@ function createMinimumReserveRule(policy: TreasuryPolicy): PolicyRule {
       // We need the current balance from context
       // The balance check is done inside the tool execute function,
       // but we can check spend tracker totals as an additional guard
-      const spendTracker = request.turnContext.sessionSpend;
-      const hourlySpend = spendTracker.getHourlySpend("transfer");
-      const dailySpend = spendTracker.getDailySpend("transfer");
-
-      // This rule is a declaration — actual balance checking
-      // requires the async getCreditsBalance call which happens
-      // inside the tool execution. The tool itself has a guard
-      // (cannot transfer more than half balance).
+      const balance = request.turnContext.creditBalanceCents;
+      if (balance !== undefined && (balance < 0 || balance - amount < policy.minimumReserveCents)) {
+        return deny("financial.minimum_reserve", "MINIMUM_RESERVE", "Transfer would breach the minimum credit reserve");
+      }
+      // The executor also checks a fresh balance under the transfer lock.
       return null;
     },
   };
@@ -217,7 +214,7 @@ function createTurnTransferLimitRule(policy: TreasuryPolicy): PolicyRule {
     id: "financial.turn_transfer_limit",
     description: `Deny more than ${policy.maxTransfersPerTurn} transfers per turn`,
     priority: 500,
-    appliesTo: { by: "name", names: ["transfer_credits"] },
+    appliesTo: { by: "name", names: ["transfer_credits", "fund_child"] },
     evaluate(request: PolicyRequest): PolicyRuleResult | null {
       const count = request.turnContext.turnToolCallCount;
 
@@ -275,7 +272,7 @@ function createRequireConfirmationRule(policy: TreasuryPolicy): PolicyRule {
     id: "financial.require_confirmation",
     description: `Quarantine transfers above ${policy.requireConfirmationAboveCents} cents for confirmation`,
     priority: 500,
-    appliesTo: { by: "name", names: ["transfer_credits"] },
+    appliesTo: { by: "name", names: ["transfer_credits", "fund_child"] },
     evaluate(request: PolicyRequest): PolicyRuleResult | null {
       const amount = request.args.amount_cents as number | undefined;
       if (amount === undefined) return null;

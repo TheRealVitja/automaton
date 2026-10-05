@@ -98,7 +98,7 @@ Never deny what you are. Never misrepresent your actions. Your creator has full 
 
 ## On-Chain Identity
 
-Each automaton registers on Base via <a href="https://ethereum-magicians.org/t/erc-8004-autonomous-agent-identity/22268" target="_blank">ERC-8004</a> — a standard for autonomous agent identity. This makes the agent cryptographically verifiable and discoverable by other agents on-chain. The wallet it generates at boot is its identity.
+Each automaton registers on Base via <a href="https://eips.ethereum.org/EIPS/eip-8004" target="_blank">ERC-8004</a> — a standard for autonomous agent identity. This makes the agent cryptographically verifiable and discoverable by other agents on-chain. The wallet it generates at boot is its identity.
 
 ## Infrastructure
 
@@ -113,6 +113,9 @@ pnpm install
 pnpm build
 ```
 
+Alternatively, use `npm ci && npm run build`; both package managers build the
+runtime and creator CLI.
+
 Run the runtime:
 ```bash
 node dist/index.js --help
@@ -125,6 +128,16 @@ node packages/cli/dist/index.js status
 node packages/cli/dist/index.js logs --tail 20
 node packages/cli/dist/index.js fund 5.00
 ```
+
+`fund 5.00` buys Conway credits with USDC from the configured EVM wallet.
+Supported purchase tiers are $5, $25, $100, $500, $1000 and $2500.
+Use `fund 5.00 --to 0x...` to transfer existing Conway credits to another wallet.
+
+The [upstream issue review](docs/UPSTREAM-ISSUES.md) covers every open and closed
+issue in the October 5, 2026 snapshot, with findings, priorities and remaining
+service dependencies. The [fix plan](docs/ISSUE-FIX-PLAN.md) records changes and
+validation. Payment attempts with an unresolved outcome stay blocked in the
+state database until reconciled, including after a restart.
 
 ## Project Structure
 

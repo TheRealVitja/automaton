@@ -156,6 +156,20 @@ describe("DurableScheduler", () => {
   });
 
   describe("schedule persistence", () => {
+    it.each([false, true])("applies lowComputeMultiplier to %s cron scheduling (#4)", (cron) => {
+      const lastRunAt = new Date(Math.floor(Date.now() / 60_000) * 60_000 - 120_000).toISOString();
+      seedScheduleRow(rawDb, "check_for_updates", {
+        lastRunAt, cronExpression: cron ? "* * * * *" : "", intervalMs: cron ? null : 60_000,
+      });
+      seedScheduleRow(rawDb, "check_credits", {
+        lastRunAt, cronExpression: cron ? "* * * * *" : "", intervalMs: cron ? null : 60_000,
+      });
+      const scheduler = new DurableScheduler(rawDb, DEFAULT_HB_CONFIG, new Map(), createLegacyContext(db, conway));
+      const context = { survivalTier: "low_compute", lowComputeMultiplier: 4 } as TickContext;
+      expect(scheduler.getDueTasks(context).map((task) => task.taskName)).toEqual(["check_credits"]);
+      context.survivalTier = "normal";
+      expect(scheduler.getDueTasks(context)).toHaveLength(2);
+    });
     it("reads schedule from DB", () => {
       seedScheduleRow(rawDb, "task_a", { priority: 1 });
       seedScheduleRow(rawDb, "task_b", { priority: 0 });

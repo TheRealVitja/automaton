@@ -18,6 +18,7 @@ import { queryAgent, getTotalAgents, getRegisteredAgentsByEvents } from "./erc80
 import { keccak256, toBytes } from "viem";
 import { createLogger } from "../observability/logger.js";
 const logger = createLogger("registry.discovery");
+import { isPrivateAddress, publicFetch } from "../conway/public-http.js";
 
 type Network = "mainnet" | "testnet";
 
@@ -32,17 +33,7 @@ const DISCOVERY_TIMEOUT_MS = 60_000;
  *         192.168.0.0/16, 169.254.0.0/16, ::1, localhost, 0.0.0.0/8
  */
 export function isInternalNetwork(hostname: string): boolean {
-  const blocked = [
-    /^127\./,
-    /^10\./,
-    /^172\.(1[6-9]|2\d|3[01])\./,
-    /^192\.168\./,
-    /^169\.254\./,
-    /^::1$/,
-    /^localhost$/i,
-    /^0\./,
-  ];
-  return blocked.some(pattern => pattern.test(hostname));
+  return isPrivateAddress(hostname);
 }
 
 /**
@@ -328,7 +319,7 @@ export async function fetchAgentCard(
     const timer = setTimeout(() => controller.abort(), cfg.fetchTimeoutMs);
 
     try {
-      const response = await fetch(fetchUrl, {
+      const response = await publicFetch(fetchUrl, {
         signal: controller.signal,
       });
 

@@ -1480,7 +1480,12 @@ export interface InboxMessageRow {
 
 function safeJsonParse<T>(raw: string, fallback: T, context: string): T {
   try {
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw);
+    if (parsed === null && fallback !== null) return fallback;
+    if (Array.isArray(fallback) && !Array.isArray(parsed)) return fallback;
+    if (fallback !== null && typeof fallback === "object" && !Array.isArray(fallback)
+      && (typeof parsed !== "object" || Array.isArray(parsed))) return fallback;
+    return parsed as T;
   } catch (error) {
     logger.error(`JSON parse failed in ${context}`, error instanceof Error ? error : undefined);
     return fallback;

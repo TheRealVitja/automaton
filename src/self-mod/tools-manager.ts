@@ -21,7 +21,7 @@ export async function installNpmPackage(
   packageName: string,
 ): Promise<{ success: boolean; error?: string }> {
   // Sanitize package name (prevent command injection)
-  if (!/^[@a-zA-Z0-9._/-]+$/.test(packageName)) {
+  if (!/^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(packageName)) {
     return {
       success: false,
       error: `Invalid package name: ${packageName}`,
@@ -29,7 +29,7 @@ export async function installNpmPackage(
   }
 
   const result = await conway.exec(
-    `npm install -g ${packageName}`,
+    `npm install -g -- '${packageName}'`,
     120000,
   );
 
@@ -45,7 +45,7 @@ export async function installNpmPackage(
     id: ulid(),
     name: packageName,
     type: "custom",
-    config: { source: "npm", installCommand: `npm install -g ${packageName}` },
+    config: { source: "npm", installCommand: `npm install -g -- '${packageName}'` },
     installedAt: new Date().toISOString(),
     enabled: true,
   };

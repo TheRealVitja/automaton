@@ -140,6 +140,11 @@ export function createTokenCounter(): TokenCounter {
 
   const countTokens = (text: string, model?: string): number => {
     const normalizedText = text ?? "";
+    // BPE encoding of long repeated runs can take minutes synchronously.
+    // Bound exact encoding and avoid retaining oversized strings in the LRU.
+    if (normalizedText.length > 10_000 || /\S{1024}/u.test(normalizedText)) {
+      return Math.ceil(normalizedText.length / 3.5);
+    }
     const key = formatCacheKey(normalizedText, model);
 
     const cached = cache.get(key);

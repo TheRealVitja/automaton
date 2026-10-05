@@ -15,8 +15,9 @@ import {
 import { base, baseSepolia } from "viem/chains";
 import { ResilientHttpClient } from "./http-client.js";
 import type { ChainType } from "../identity/chain.js";
+import { publicFetch } from "./public-http.js";
 
-const x402HttpClient = new ResilientHttpClient();
+const x402HttpClient = new ResilientHttpClient(undefined, publicFetch);
 
 // USDC contract addresses
 const USDC_ADDRESSES: Record<string, Address> = {
@@ -64,6 +65,7 @@ interface X402PaymentResult {
   response?: any;
   error?: string;
   status?: number;
+  paymentAttempted?: boolean;
 }
 
 export interface UsdcBalanceResult {
@@ -317,6 +319,8 @@ export async function x402Fetch(
   headers?: Record<string, string>,
   maxPaymentCents?: number,
   chainType?: ChainType,
+  idempotencyKey?: string,
+  minimumUsdcReserveCents: number = 0,
 ): Promise<X402PaymentResult> {
   // Solana wallets cannot sign EVM x402 payments
   if (chainType === "solana") {
@@ -326,18 +330,19 @@ export async function x402Fetch(
     };
   }
 
+  let paymentAttempted = false;
   try {
     // Initial request (non-mutating probe, uses resilient client)
     const initialResp = await x402HttpClient.request(url, {
       method,
       headers: { ...headers, "Content-Type": "application/json" },
       body,
+      retries: 0, // Even the unpaid probe may be a mutating POST.
+      idempotencyKey,
     });
 
     if (initialResp.status !== 402) {
-      const data = await initialResp
-        .json()
-        .catch(() => initialResp.text());
+      const data = await readResponse(initialResp);
       return { success: initialResp.ok, response: data, status: initialResp.status };
     }
 
@@ -351,20 +356,27 @@ export async function x402Fetch(
       };
     }
 
+    const amountAtomic = parseMaxAmountRequired(
+      parsed.requirement.maxAmountRequired, parsed.x402Version,
+    );
+    const amountCents = Number(amountAtomic) / 10_000;
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      return { success: false, error: "Invalid payment amount", status: 402 };
+    }
     // Check amount against maxPaymentCents BEFORE signing
     if (maxPaymentCents !== undefined) {
-      const amountAtomic = parseMaxAmountRequired(
-        parsed.requirement.maxAmountRequired,
-        parsed.x402Version,
-      );
-      // Convert atomic units (6 decimals) to cents (2 decimals)
-      const amountCents = Number(amountAtomic) / 10_000;
-      if (amountCents > maxPaymentCents) {
+      if (!Number.isFinite(maxPaymentCents) || maxPaymentCents < 0 || amountCents > maxPaymentCents) {
         return {
           success: false,
           error: `Payment of ${amountCents.toFixed(2)} cents exceeds max allowed ${maxPaymentCents} cents`,
           status: 402,
         };
+      }
+    }
+    if (minimumUsdcReserveCents > 0) {
+      const balance = await getUsdcBalance(account.address, parsed.requirement.network);
+      if (balance * 100 - amountCents < minimumUsdcReserveCents) {
+        return { success: false, error: "Payment would breach the minimum USDC reserve", status: 402 };
       }
     }
 
@@ -389,6 +401,7 @@ export async function x402Fetch(
       JSON.stringify(payment),
     ).toString("base64");
 
+    paymentAttempted = true;
     const paidResp = await x402HttpClient.request(url, {
       method,
       headers: {
@@ -398,13 +411,19 @@ export async function x402Fetch(
       },
       body,
       retries: 0, // Paid request: do not auto-retry (payment already signed)
+      idempotencyKey,
     });
 
-    const data = await paidResp.json().catch(() => paidResp.text());
-    return { success: paidResp.ok, response: data, status: paidResp.status };
+    const data = await readResponse(paidResp);
+    return { success: paidResp.ok, response: data, status: paidResp.status, paymentAttempted };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { success: false, error: err.message, paymentAttempted };
   }
+}
+
+async function readResponse(response: Response): Promise<unknown> {
+  const text = await response.text();
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 async function parsePaymentRequired(

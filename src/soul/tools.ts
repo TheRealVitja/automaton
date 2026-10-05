@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * Soul Tools — Tool implementations for soul management.
  *
@@ -37,7 +38,7 @@ export async function updateSoul(
   soulPath?: string,
 ): Promise<UpdateSoulResult> {
   try {
-    const home = process.env.HOME || "/root";
+    const home = homedir();
     const resolvedPath = soulPath || path.join(home, ".automaton", "SOUL.md");
 
     // Load current soul or create default

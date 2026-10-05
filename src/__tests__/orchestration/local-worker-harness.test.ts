@@ -155,6 +155,7 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
       identity: createTestIdentity(),
       config: createTestConfig(),
       allowedEditRoot: process.cwd(),
+      workspaceBasePath: path.join(tempHome, ".automaton", "workspace"),
     });
   }
 

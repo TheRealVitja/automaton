@@ -532,7 +532,7 @@ export class Orchestrator {
     // leave tasks stuck in 'assigned' forever. Detect and reset them.
     if (this.params.isWorkerAlive) {
       const assignedTasks = getTasksByGoal(this.params.db, goal.id)
-        .filter((t) => t.status === "assigned" && t.assignedTo);
+        .filter((t) => (t.status === "assigned" || t.status === "running") && t.assignedTo);
       for (const task of assignedTasks) {
         const alive = this.params.isWorkerAlive(task.assignedTo!);
         if (!alive) {
@@ -540,6 +540,8 @@ export class Orchestrator {
             taskId: task.id,
             worker: task.assignedTo,
           });
+          // Dead workers must not immediately re-enter the idle pool.
+          this.params.agentTracker.updateStatus(task.assignedTo!, "dead");
           this.params.db.prepare(
             "UPDATE task_graph SET status = 'pending', assigned_to = NULL, started_at = NULL WHERE id = ?",
           ).run(task.id);

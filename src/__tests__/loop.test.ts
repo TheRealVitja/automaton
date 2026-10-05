@@ -19,6 +19,16 @@ import {
 } from "./mocks.js";
 import type { AutomatonDatabase, AgentTurn, AgentState } from "../types.js";
 
+// Loop tests validate orchestration, not live chain availability.
+vi.mock("../conway/x402.js", async (original) => ({
+  ...await original<typeof import("../conway/x402.js")>(),
+  getUsdcBalance: async () => 0,
+}));
+vi.mock("../registry/discovery.js", async (original) => ({
+  ...await original<typeof import("../registry/discovery.js")>(),
+  discoverAgents: async () => [],
+}));
+
 describe("Agent Loop", () => {
   let db: AutomatonDatabase;
   let conway: MockConwayClient;

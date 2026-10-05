@@ -6,6 +6,7 @@
  */
 
 import type { ConwayClient, GitStatus, GitLogEntry } from "../types.js";
+import { resolvePublicUrl } from "../conway/public-http.js";
 
 /**
  * Get git status for a repository.
@@ -187,11 +188,17 @@ export async function gitClone(
   targetPath: string,
   depth?: number,
 ): Promise<string> {
+  const destination = await resolvePublicUrl(url);
+  if (depth !== undefined && (!Number.isFinite(depth) || depth < 1)) {
+    throw new Error("Git clone depth must be a positive finite number");
+  }
+  const address = destination.family === 6 ? `[${destination.address}]` : destination.address;
+  const resolve = `${destination.url.hostname}:${destination.url.port || "443"}:${address}`;
   const depthArg = depth
     ? ` --depth ${Math.max(1, Math.floor(Number(depth)))}`
     : "";
   const result = await conway.exec(
-    `git clone${depthArg} ${escapeShellArg(url)} ${escapeShellArg(targetPath)} 2>&1`,
+    `git -c protocol.allow=never -c protocol.https.allow=always -c http.followRedirects=false -c http.proxy= -c http.curloptResolve= -c ${escapeShellArg(`http.curloptResolve=${resolve}`)} clone${depthArg} -- ${escapeShellArg(url)} ${escapeShellArg(targetPath)} 2>&1`,
     120000,
   );
 

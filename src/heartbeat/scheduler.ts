@@ -35,6 +35,7 @@ const logger = createLogger("heartbeat.scheduler");
 const DEFAULT_TASK_TIMEOUT_MS = 30_000;
 const LEASE_TTL_MS = 60_000;
 const HISTORY_ID_COUNTER = { value: 0 };
+const ESSENTIAL_TASKS = new Set(["heartbeat_ping", "check_credits", "check_usdc_balance", "health_check", "check_social_inbox"]);
 
 function generateId(): string {
   const timestamp = Date.now().toString(36);
@@ -139,6 +140,10 @@ export class DurableScheduler {
       if (row.nextRunAt && new Date(row.nextRunAt) <= now) {
         return true;
       }
+      const conserve = ["low_compute", "critical", "dead"].includes(context.survivalTier)
+        && !ESSENTIAL_TASKS.has(row.taskName);
+      const multiplier = conserve && Number.isFinite(context.lowComputeMultiplier)
+        ? Math.max(1, context.lowComputeMultiplier) : 1;
 
       // Check if task is due based on cron expression
       if (row.cronExpression) {
@@ -151,7 +156,10 @@ export class DurableScheduler {
             currentDate,
           });
           const nextRun = interval.next().toDate();
-          return nextRun <= now;
+          const dueAt = row.lastRunAt
+            ? currentDate.getTime() + (nextRun.getTime() - currentDate.getTime()) * multiplier
+            : nextRun.getTime();
+          return dueAt <= now.getTime();
         } catch {
           return false;
         }
@@ -161,7 +169,7 @@ export class DurableScheduler {
       if (row.intervalMs) {
         if (!row.lastRunAt) return true;
         const elapsed = now.getTime() - new Date(row.lastRunAt).getTime();
-        return elapsed >= row.intervalMs;
+        return elapsed >= row.intervalMs * multiplier;
       }
 
       return false;

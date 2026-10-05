@@ -125,6 +125,20 @@ describe("spawnChild", () => {
     expect(child.status).toBe("spawning");
   });
 
+  it("passes configured sandbox memory to a valid tier (#404)", async () => {
+    const create = vi.spyOn(conway, "createSandbox");
+    vi.spyOn(conway, "exec").mockResolvedValue({ stdout: `Wallet: ${validAddress}`, stderr: "", exitCode: 0 });
+    await spawnChild(conway, identity, db, genesis, undefined, { childSandboxMemoryMb: 2048 });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 2048, vcpu: 2 }));
+  });
+
+  it("stops immediately when runtime installation fails (#226)", async () => {
+    const exec = vi.spyOn(conway, "exec").mockResolvedValue({ stdout: "", stderr: "install failed", exitCode: 1 });
+    await expect(spawnChild(conway, identity, db, genesis)).rejects.toThrow("Child initialization failed");
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(db.getChildren()).toHaveLength(0);
+  });
+
   it("throws on zero address from init", async () => {
     vi.spyOn(conway, "exec").mockImplementation(async (command: string) => {
       if (command.includes("--init")) {

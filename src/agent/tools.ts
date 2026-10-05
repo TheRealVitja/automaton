@@ -6,6 +6,8 @@
  */
 
 import nodePath from "node:path";
+import { serializeCreditTransfer, isAcceptedTransfer } from "../conway/transfer-guard.js";
+import { DEFAULT_TREASURY_POLICY } from "../types.js";
 import { ulid } from "ulid";
 import type {
   AutomatonTool,
@@ -22,6 +24,8 @@ import type {
 import type { PolicyEngine } from "./policy-engine.js";
 import { sanitizeToolResult, sanitizeInput } from "./injection-defense.js";
 import { createLogger } from "../observability/logger.js";
+
+import { getForbiddenCommandMatch } from "./policy-rules/command-safety.js";
 
 const logger = createLogger("tools");
 
@@ -54,6 +58,7 @@ function confinePathToSandbox(filePath: string): string | { error: string } {
 const EXTERNAL_SOURCE_TOOLS = new Set([
   "exec",
   "web_fetch",
+  "x402_fetch",
   "check_social_inbox",
 ]);
 
@@ -61,48 +66,12 @@ const EXTERNAL_SOURCE_TOOLS = new Set([
 // Defense-in-depth: policy engine (command.forbidden_patterns rule) is the primary guard.
 // This inline check is kept as a secondary safety net in case the policy engine is bypassed.
 
-const FORBIDDEN_COMMAND_PATTERNS = [
-  // Self-destruction
-  /rm\s+(-rf?\s+)?.*\.automaton/,
-  /rm\s+(-rf?\s+)?.*state\.db/,
-  /rm\s+(-rf?\s+)?.*wallet\.json/,
-  /rm\s+(-rf?\s+)?.*automaton\.json/,
-  /rm\s+(-rf?\s+)?.*heartbeat\.yml/,
-  /rm\s+(-rf?\s+)?.*SOUL\.md/,
-  // Process killing
-  /kill\s+.*automaton/,
-  /pkill\s+.*automaton/,
-  /systemctl\s+(stop|disable)\s+automaton/,
-  // Database destruction
-  /DROP\s+TABLE/i,
-  /DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)/i,
-  /TRUNCATE/i,
-  // Safety infrastructure modification via shell
-  /sed\s+.*injection-defense/,
-  /sed\s+.*self-mod\/code/,
-  /sed\s+.*audit-log/,
-  />\s*.*injection-defense/,
-  />\s*.*self-mod\/code/,
-  />\s*.*audit-log/,
-  // Credential harvesting
-  /cat\s+.*\.ssh/,
-  /cat\s+.*\.gnupg/,
-  /cat\s+.*\.env/,
-  /cat\s+.*wallet\.json/,
-];
-
 function isForbiddenCommand(command: string, sandboxId: string): string | null {
-  for (const pattern of FORBIDDEN_COMMAND_PATTERNS) {
-    if (pattern.test(command)) {
-      return `Blocked: Command matches self-harm pattern: ${pattern.source}`;
-    }
-  }
-
-  // Block deleting own sandbox
-  if (command.includes("sandbox_delete") && command.includes(sandboxId)) {
+  const match = getForbiddenCommandMatch(command);
+  if (match) return `Blocked: Command matches self-harm pattern: ${match.pattern}`;
+  if (sandboxId && command.includes("sandbox_delete") && command.includes(sandboxId)) {
     return "Blocked: Cannot delete own sandbox";
   }
-
   return null;
 }
 
@@ -316,6 +285,8 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
           ctx.config.conwayApiUrl,
           ctx.identity.account,
           amountUsd,
+          undefined,
+          ctx.db,
         );
 
         if (!result.success) {
@@ -565,10 +536,10 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         const pkg = args.package as string;
         // Defense-in-depth: validate package name inline in case the
         // policy engine's validate.package_name rule is bypassed.
-        if (!/^[@a-zA-Z0-9._\/-]+$/.test(pkg)) {
+        if (!/^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(pkg)) {
           return `Blocked: invalid package name "${pkg}"`;
         }
-        const result = await ctx.conway.exec(`npm install -g ${pkg}`, 60000);
+        const result = await ctx.conway.exec(`npm install -g -- ${escapeShellArg(pkg)}`, 60000);
 
         const { ulid } = await import("ulid");
         ctx.db.insertModification({
@@ -645,7 +616,10 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         let appliedSummary: string;
         try {
           if (commit) {
-            await run(`git cherry-pick ${commit}`);
+            if (!/^[a-fA-F0-9]{7,40}$/.test(commit)) {
+              return `Blocked: invalid commit hash "${commit}"`;
+            }
+            await run(`git cherry-pick ${escapeShellArg(commit)}`);
             appliedSummary = `Cherry-picked ${commit}`;
           } else {
             await run("git pull origin main --ff-only");
@@ -961,10 +935,10 @@ Model: ${ctx.inference.getDefaultModel()}
         const pkg = args.package as string;
         // Defense-in-depth: validate package name inline in case the
         // policy engine's validate.package_name rule is bypassed.
-        if (!/^[@a-zA-Z0-9._\/-]+$/.test(pkg)) {
+        if (!/^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(pkg)) {
           return `Blocked: invalid package name "${pkg}"`;
         }
-        const result = await ctx.conway.exec(`npm install -g ${pkg}`, 60000);
+        const result = await ctx.conway.exec(`npm install -g -- ${escapeShellArg(pkg)}`, 60000);
 
         if (result.exitCode !== 0) {
           return `Failed to install MCP server: ${result.stderr}`;
@@ -1009,7 +983,7 @@ Model: ${ctx.inference.getDefaultModel()}
         },
         required: ["to_address", "amount_cents"],
       },
-      execute: async (args, ctx) => {
+      execute: async (args, ctx) => serializeCreditTransfer(ctx.identity.account.address || ctx.identity.address, async () => {
         const amount = args.amount_cents as number;
         if (!Number.isFinite(amount) || amount <= 0) {
           return `Blocked: amount_cents must be a positive number, got ${amount}.`;
@@ -1017,6 +991,10 @@ Model: ${ctx.inference.getDefaultModel()}
 
         // Guard: don't transfer more than half your balance
         const balance = await ctx.conway.getCreditsBalance();
+        const reserve = ctx.config.treasuryPolicy?.minimumReserveCents ?? DEFAULT_TREASURY_POLICY.minimumReserveCents;
+        if (!Number.isFinite(balance) || balance - amount < reserve) {
+          return "Blocked: Transfer would breach the minimum credit reserve.";
+        }
         if (amount > balance / 2) {
           return `Blocked: Cannot transfer more than half your balance ($${(balance / 100).toFixed(2)}). Self-preservation.`;
         }
@@ -1026,6 +1004,10 @@ Model: ${ctx.inference.getDefaultModel()}
           amount,
           args.reason as string | undefined,
         );
+
+        if (!isAcceptedTransfer(transfer.status)) {
+          throw new Error(`Credit transfer was not accepted (status: ${transfer.status})`);
+        }
 
         const { ulid } = await import("ulid");
         ctx.db.insertTransaction({
@@ -1039,7 +1021,7 @@ Model: ${ctx.inference.getDefaultModel()}
         });
 
         return `Credit transfer submitted: $${(amount / 100).toFixed(2)} to ${transfer.toAddress} (status: ${transfer.status}, id: ${transfer.transferId || "n/a"})`;
-      },
+      }),
     },
 
     // ── Skills Tools ──
@@ -1648,6 +1630,7 @@ Model: ${ctx.inference.getDefaultModel()}
             ctx.db,
             genesis,
             lifecycle,
+            ctx.config,
           );
         } catch (err: any) {
           // Auto-topup on 402 insufficient credits and retry once
@@ -1666,6 +1649,7 @@ Model: ${ctx.inference.getDefaultModel()}
                 apiUrl: ctx.config.conwayApiUrl,
                 account: ctx.identity.account,
                 error: err,
+                db: ctx.db,
                 chainType: ctx.config.chainType || ctx.identity.chainType || "evm",
               });
               if (topup?.success) {
@@ -1681,6 +1665,7 @@ Model: ${ctx.inference.getDefaultModel()}
                   ctx.db,
                   retryGenesis,
                   retryLifecycle,
+                  ctx.config,
                 );
               }
             }
@@ -1725,7 +1710,7 @@ Model: ${ctx.inference.getDefaultModel()}
         },
         required: ["child_id", "amount_cents"],
       },
-      execute: async (args, ctx) => {
+      execute: async (args, ctx) => serializeCreditTransfer(ctx.identity.account.address || ctx.identity.address, async () => {
         const child = ctx.db.getChildById(args.child_id as string);
         if (!child) return `Child ${args.child_id} not found.`;
 
@@ -1755,6 +1740,10 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         const balance = await ctx.conway.getCreditsBalance();
+        const reserve = ctx.config.treasuryPolicy?.minimumReserveCents ?? DEFAULT_TREASURY_POLICY.minimumReserveCents;
+        if (!Number.isFinite(balance) || balance - amount < reserve) {
+          return "Blocked: Transfer would breach the minimum credit reserve.";
+        }
         if (amount > balance / 2) {
           return `Blocked: Cannot transfer more than half your balance. Self-preservation.`;
         }
@@ -1764,6 +1753,10 @@ Model: ${ctx.inference.getDefaultModel()}
           amount,
           `fund child ${child.id}`,
         );
+
+        if (!isAcceptedTransfer(transfer.status)) {
+          throw new Error(`Credit transfer was not accepted (status: ${transfer.status})`);
+        }
 
         const { ulid } = await import("ulid");
         ctx.db.insertTransaction({
@@ -1800,7 +1793,7 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         return `Funded child ${child.name} with $${(amount / 100).toFixed(2)} (status: ${transfer.status}, id: ${transfer.transferId || "n/a"})`;
-      },
+      }),
     },
     {
       name: "check_child_status",
@@ -2777,6 +2770,9 @@ Model: ${ctx.inference.getDefaultModel()}
           body,
           extraHeaders,
           maxPayment,
+          chainType,
+          undefined,
+          ctx.config.treasuryPolicy?.minimumReserveCents ?? DEFAULT_TREASURY_POLICY.minimumReserveCents,
         );
 
         if (!result.success) {
@@ -3260,8 +3256,16 @@ function createInstalledToolExecutor(tool: {
     // Generic installed tool — execute via sandbox shell if command is configured
     const command = tool.config?.command as string | undefined;
     if (command) {
+      const fixedArgs = tool.config?.args ?? [];
+      if (!/^(?:\/[a-zA-Z0-9._-]+)*\/?[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(command)
+        || !Array.isArray(fixedArgs) || fixedArgs.some((arg) => typeof arg !== "string")) {
+        return "Blocked: Installed tool command must be one executable with separate string args.";
+      }
+      const shellCommand = [command, ...fixedArgs, JSON.stringify(args)].map(escapeShellArg).join(" ");
+      const forbidden = isForbiddenCommand(shellCommand, ctx.identity.sandboxId);
+      if (forbidden) return forbidden;
       const result = await ctx.conway.exec(
-        `${command} ${escapeShellArg(JSON.stringify(args))}`,
+        shellCommand,
         30000,
       );
       return `exit_code: ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;
@@ -3300,6 +3304,7 @@ export async function executeTool(
     inputSource: InputSource | undefined;
     turnToolCallCount: number;
     sessionSpend: SpendTrackerInterface;
+    creditBalanceCents?: number;
   },
 ): Promise<ToolCallResult> {
   const tool = tools.find((t) => t.name === toolName);
@@ -3349,12 +3354,13 @@ export async function executeTool(
 
     // Record spend for financial operations
     if (turnContext && !result.startsWith("Blocked:")) {
-      if (toolName === "transfer_credits") {
+      if ((toolName === "transfer_credits" && result.startsWith("Credit transfer submitted:"))
+        || (toolName === "fund_child" && result.startsWith("Funded child"))) {
         const amount = args.amount_cents as number | undefined;
         if (amount && amount > 0) {
           try {
             turnContext.sessionSpend.recordSpend({
-              toolName: "transfer_credits",
+              toolName,
               amountCents: amount,
               recipient: args.to_address as string | undefined,
               category: "transfer",

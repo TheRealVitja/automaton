@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * Constitution Integrity
  *
@@ -28,7 +29,7 @@ export async function propagateConstitution(
   db: DatabaseType,
 ): Promise<void> {
   const constitutionPath = pathLib.join(
-    process.env.HOME || "/root",
+    homedir(),
     ".automaton",
     "constitution.md",
   );

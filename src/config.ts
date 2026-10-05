@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * Automaton Configuration
  *
@@ -52,6 +53,7 @@ export function loadConfig(): AutomatonConfig | null {
     // Deep-merge model strategy config with defaults
     const modelStrategy: ModelStrategyConfig = {
       ...DEFAULT_MODEL_STRATEGY_CONFIG,
+      ...(raw.inferenceModel ? { inferenceModel: raw.inferenceModel } : {}),
       ...(raw.modelStrategy ?? {}),
     };
 
@@ -106,7 +108,7 @@ export function saveConfig(config: AutomatonConfig): void {
  */
 export function resolvePath(p: string): string {
   if (p.startsWith("~")) {
-    return path.join(process.env.HOME || "/root", p.slice(1));
+    return path.join(homedir(), p.slice(1));
   }
   return p;
 }

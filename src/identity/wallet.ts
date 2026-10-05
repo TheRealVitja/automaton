@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * Automaton Wallet Management
  *
@@ -42,7 +43,7 @@ function createSolanaStubAccount(solanaAddress: string): PrivateKeyAccount {
 }
 
 const AUTOMATON_DIR = path.join(
-  process.env.HOME || "/root",
+  homedir(),
   ".automaton",
 );
 const WALLET_FILE = path.join(AUTOMATON_DIR, "wallet.json");

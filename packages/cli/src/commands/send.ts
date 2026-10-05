@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * automaton-cli send <to-address> "message text"
  *
@@ -26,7 +27,7 @@ if (!toAddress || !messageText) {
 
 // Load wallet
 const walletPath = path.join(
-  process.env.HOME || "/root",
+  homedir(),
   ".automaton",
   "wallet.json",
 );

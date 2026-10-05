@@ -53,7 +53,7 @@ export class ResilientHttpClient {
   private circuitOpenUntil = 0;
   private readonly config: HttpClientConfig;
 
-  constructor(config?: Partial<HttpClientConfig>) {
+  constructor(config?: Partial<HttpClientConfig>, private readonly transport?: (url: string, options: RequestInit) => Promise<Response>) {
     this.config = { ...DEFAULT_HTTP_CLIENT_CONFIG, ...config };
   }
 
@@ -80,8 +80,9 @@ export class ResilientHttpClient {
       const timer = setTimeout(() => controller.abort(), timeout);
 
       try {
-        const response = await fetch(url, {
+        const response = await (this.transport ?? fetch)(url, {
           ...opts,
+          redirect: "error", // Validate the destination we actually contact.
           signal: controller.signal,
           headers: {
             ...opts.headers,

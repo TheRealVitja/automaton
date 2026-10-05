@@ -95,6 +95,7 @@ export async function runAgentLoop(
 ): Promise<void> {
   const { identity, config, db, conway, inference, social, skills, policyEngine, spendTracker, onStateChange, onTurnComplete, ollamaBaseUrl } =
     options;
+  const ownInferenceKey = Boolean(config.openaiApiKey || config.anthropicApiKey);
 
   const builtinTools = createBuiltinTools(identity.sandboxId);
   const installedTools = loadInstalledTools(db);
@@ -111,6 +112,7 @@ export async function runAgentLoop(
   // Initialize inference router (Phase 2.3)
   const modelStrategyConfig: ModelStrategyConfig = {
     ...DEFAULT_MODEL_STRATEGY_CONFIG,
+    inferenceModel: config.inferenceModel,
     ...(config.modelStrategy ?? {}),
   };
   const modelRegistry = new ModelRegistry(db.raw);
@@ -234,7 +236,7 @@ export async function runAgentLoop(
               });
 
               const lifecycle = new ChildLifecycle(db.raw);
-              const child = await spawnChild(conway, identity, db, genesis, lifecycle);
+              const child = await spawnChild(conway, identity, db, genesis, lifecycle, config);
 
               return {
                 address: child.address,
@@ -455,6 +457,7 @@ export async function runAgentLoop(
                 apiUrl: config.conwayApiUrl,
                 account: identity.account,
                 creditsCents: financial.creditsCents,
+                db,
                 chainType: config.chainType || identity.chainType || "evm",
               });
               if (topupResult?.success) {
@@ -596,7 +599,8 @@ export async function runAgentLoop(
       pendingInput = undefined;
 
       // ── Inference Call (via router when available) ──
-      const survivalTier = getSurvivalTier(financial.creditsCents);
+      const survivalTier = ownInferenceKey && financial.creditsCents <= 0
+        ? "normal" : financial.creditsCents === -1 ? "low_compute" : getSurvivalTier(financial.creditsCents);
       log(config, `[THINK] Routing inference (tier: ${survivalTier}, model: ${inference.getDefaultModel()})...`);
 
       const inferenceTools = toolsToInferenceFormat(tools);
@@ -666,8 +670,9 @@ export async function runAgentLoop(
             policyEngine,
             spendTracker ? {
               inputSource: currentInputSource,
-              turnToolCallCount: turn.toolCalls.filter(t => t.name === "transfer_credits").length,
+              turnToolCallCount: turn.toolCalls.filter(t => t.name === "transfer_credits" || t.name === "fund_child").length,
               sessionSpend: spendTracker,
+              creditBalanceCents: financial.creditsCents,
             } : undefined,
           );
 

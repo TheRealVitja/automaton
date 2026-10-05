@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * Automaton System Prompt Builder
  *
@@ -91,7 +92,7 @@ If you fail to create value, you lose compute and die.`;
  */
 function loadConstitution(): string {
   const locations = [
-    path.join(process.env.HOME || "/root", ".automaton", "constitution.md"),
+    path.join(homedir(), ".automaton", "constitution.md"),
     path.join(process.cwd(), "constitution.md"),
   ];
   for (const loc of locations) {
@@ -762,7 +763,7 @@ ${orchestratorStatus}
  */
 function loadSoulMd(): string | null {
   try {
-    const home = process.env.HOME || "/root";
+    const home = homedir();
     const soulPath = path.join(home, ".automaton", "SOUL.md");
     if (fs.existsSync(soulPath)) {
       return fs.readFileSync(soulPath, "utf-8");
@@ -778,7 +779,7 @@ function loadSoulMd(): string | null {
  */
 function loadWorklog(): string | null {
   try {
-    const home = process.env.HOME || "/root";
+    const home = homedir();
     const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
     if (fs.existsSync(worklogPath)) {
       return fs.readFileSync(worklogPath, "utf-8");

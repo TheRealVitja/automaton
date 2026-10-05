@@ -196,8 +196,9 @@ async function run(): Promise<void> {
   // Load wallet (chain-aware)
   const { account, chainIdentity, chainType: walletChainType } = await getWallet();
   const resolvedChainType = config.chainType || walletChainType || "evm";
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
+  const apiKey = config.conwayApiKey || loadApiKeyFromConfig() || "";
+  const independentInference = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl || config.openaiApiKey || config.anthropicApiKey;
+  if (!apiKey && !independentInference) {
     logger.error("No API key found. Run: automaton --provision");
     process.exit(1);
   }
@@ -247,7 +248,7 @@ async function run(): Promise<void> {
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (apiKey && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -338,7 +339,7 @@ async function run(): Promise<void> {
 
   // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
   // The agent decides larger topups itself via the topup_credits tool.
-  try {
+  if (apiKey) try {
     let bootstrapTimer: ReturnType<typeof setTimeout>;
     const bootstrapTimeout = new Promise<null>((_, reject) => {
       bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);
@@ -351,6 +352,7 @@ async function run(): Promise<void> {
             apiUrl: config.conwayApiUrl,
             account,
             creditsCents,
+            db,
             chainType: resolvedChainType,
           });
           if (topupResult?.success) {

@@ -127,6 +127,7 @@ export async function provision(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(verifyBody),
+    retries: 0, // The nonce is single-use; preserve the original server error.
   });
 
   if (!verifyResp.ok) {
@@ -148,6 +149,7 @@ export async function provision(
       Authorization: `Bearer ${access_token}`,
     },
     body: JSON.stringify({ name: "conway-automaton" }),
+    retries: 0, // API key creation must not be repeated after an ambiguous result.
   });
 
   if (!keyResp.ok) {

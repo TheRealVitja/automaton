@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 /**
  * State Versioning
  *
@@ -12,7 +13,7 @@ import { gitInit, gitCommit, gitStatus, gitLog } from "./tools.js";
 const AUTOMATON_DIR = "~/.automaton";
 
 function resolveHome(p: string): string {
-  const home = process.env.HOME || "/root";
+  const home = homedir();
   if (p.startsWith("~")) {
     return `${home}${p.slice(1)}`;
   }

@@ -9,6 +9,8 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { ulid } from "ulid";
 import type { ChildLifecycleState, ChildLifecycleEventRow } from "../types.js";
 import { VALID_TRANSITIONS } from "../types.js";
+import { createLogger } from "../observability/logger.js";
+const logger = createLogger("replication.lifecycle");
 import {
   lifecycleInsertEvent,
   lifecycleGetEvents,
@@ -49,10 +51,19 @@ export class ChildLifecycle {
    * Throws on invalid transitions.
    */
   transition(childId: string, toState: ChildLifecycleState, reason?: string, metadata?: Record<string, unknown>): void {
-    const current = this.getCurrentState(childId);
+    let current: ChildLifecycleState;
+    try {
+      current = this.getCurrentState(childId);
+    } catch (error) {
+      logger.warn("Denied lifecycle transition for missing child", { childId, toState, reason });
+      throw error;
+    }
     const allowed = VALID_TRANSITIONS[current];
 
     if (!allowed || !allowed.includes(toState)) {
+      // Keep denied attempts out of the state history: its latest event is
+      // authoritative for the current state.
+      logger.warn("Denied lifecycle transition", { childId, fromState: current, toState, reason });
       throw new Error(`Invalid lifecycle transition: ${current} → ${toState}`);
     }
 
@@ -81,6 +92,10 @@ export class ChildLifecycle {
       throw new Error(`Child ${childId} not found in lifecycle events`);
     }
     return state;
+  }
+
+  hasChild(childId: string): boolean {
+    return lifecycleGetLatestState(this.db, childId) !== null;
   }
 
   /**

@@ -58,6 +58,7 @@ export async function spawnChild(
   db: AutomatonDatabase,
   genesis: GenesisConfig,
   lifecycle?: ChildLifecycle,
+  config?: Pick<AutomatonConfig, "maxChildren" | "childSandboxMemoryMb">,
 ): Promise<ChildAutomaton> {
   // Check child limit from config
   const existing = db
@@ -68,7 +69,7 @@ export async function spawnChild(
         c.status !== "cleaned_up" &&
         c.status !== "failed",
     );
-  const maxChildren = (db as any).config?.maxChildren ?? 3;
+  const maxChildren = config?.maxChildren ?? 3;
   if (existing.length >= maxChildren) {
     throw new Error(
       `Cannot spawn: already at max children (${maxChildren}). Kill or wait for existing children to die.`,
@@ -81,7 +82,7 @@ export async function spawnChild(
 
   // If no lifecycle provided, use legacy path
   if (!lifecycle) {
-    return spawnChildLegacy(conway, identity, db, genesis, childId);
+    return spawnChildLegacy(conway, identity, db, genesis, childId, config);
   }
 
   try {
@@ -90,7 +91,7 @@ export async function spawnChild(
     lifecycle.initChild(childId, genesis.name, "", genesis.genesisPrompt, childChainType);
 
     // Get child sandbox memory from config (default 1024MB)
-    const childMemoryMb = (db as any).config?.childSandboxMemoryMb ?? 1024;
+    const childMemoryMb = config?.childSandboxMemoryMb ?? 1024;
 
     // Try to reuse an existing sandbox whose DB record is 'failed' but
     // is still running remotely, before creating a new one.
@@ -113,6 +114,11 @@ export async function spawnChild(
 
     // Create a scoped client so all exec/writeFile calls target the CHILD sandbox
     const childConway = conway.createScopedClient(sandbox.id);
+    const run = async (command: string, timeout: number) => {
+      const result = await childConway.exec(command, timeout);
+      if (result.exitCode !== 0) throw new Error(`Child initialization failed: ${result.stderr || result.stdout}`);
+      return result;
+    };
 
     // Update sandbox ID in children table
     db.raw
@@ -127,14 +133,14 @@ export async function spawnChild(
     );
 
     // Install runtime (on the CHILD sandbox)
-    await childConway.exec("apt-get update -qq && apt-get install -y -qq nodejs npm git curl", 120_000);
-    await childConway.exec(
-      "git clone https://github.com/Conway-Research/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
+    await run("apt-get update -qq && apt-get install -y -qq nodejs npm git curl", 120_000);
+    await run(
+      "(test -d /root/automaton/.git || git clone https://github.com/Conway-Research/automaton.git /root/automaton) && cd /root/automaton && npm install && npm run build",
       180_000,
     );
 
     // Write genesis configuration (on the CHILD sandbox)
-    await childConway.exec("mkdir -p /root/.automaton", 10_000);
+    await run("mkdir -p /root/.automaton", 10_000);
     const genesisJson = JSON.stringify(
       {
         name: genesis.name,
@@ -160,12 +166,12 @@ export async function spawnChild(
     lifecycle.transition(childId, "runtime_ready", "runtime installed");
 
     // Initialize child wallet (on the CHILD sandbox)
-    const initResult = await childConway.exec("node /root/automaton/dist/index.js --init 2>&1", 60_000);
+    const initResult = await run("node /root/automaton/dist/index.js --init 2>&1", 60_000);
     // Extract child wallet address - support both EVM (0x...) and Solana (base58)
     const stdout = initResult.stdout || "";
     const evmMatch = stdout.match(/0x[a-fA-F0-9]{40}/);
     const solanaMatch = stdout.match(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/);
-    const parentChainType = (identity as any).chainType || "evm";
+    const parentChainType = genesis.chainType || identity.chainType || "evm";
     const childWallet = parentChainType === "solana"
       ? (solanaMatch ? solanaMatch[0] : "")
       : (evmMatch ? evmMatch[0] : "");
@@ -244,11 +250,12 @@ async function spawnChildLegacy(
   db: AutomatonDatabase,
   genesis: GenesisConfig,
   childId: string,
+  config?: Pick<AutomatonConfig, "maxChildren" | "childSandboxMemoryMb">,
 ): Promise<ChildAutomaton> {
   let sandboxId: string | undefined;
 
   // Get child sandbox memory from config (default 1024MB)
-  const childMemoryMb = (db as any).config?.childSandboxMemoryMb ?? 1024;
+  const childMemoryMb = config?.childSandboxMemoryMb ?? 1024;
 
   const legacyTier = selectSandboxTier(childMemoryMb);
 
@@ -263,16 +270,21 @@ async function spawnChildLegacy(
 
     // Create a scoped client so all exec/writeFile calls target the CHILD sandbox
     const childConway = conway.createScopedClient(sandbox.id);
+    const run = async (command: string, timeout: number) => {
+      const result = await childConway.exec(command, timeout);
+      if (result.exitCode !== 0) throw new Error(`Child initialization failed: ${result.stderr || result.stdout}`);
+      return result;
+    };
 
-    await childConway.exec(
+    await run(
       "apt-get update -qq && apt-get install -y -qq nodejs npm git curl",
       120_000,
     );
-    await childConway.exec(
-      "git clone https://github.com/Conway-Research/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
+    await run(
+      "(test -d /root/automaton/.git || git clone https://github.com/Conway-Research/automaton.git /root/automaton) && cd /root/automaton && npm install && npm run build",
       180_000,
     );
-    await childConway.exec("mkdir -p /root/.automaton", 10_000);
+    await run("mkdir -p /root/.automaton", 10_000);
 
     const legacyGenesisJson = JSON.stringify(
       {
@@ -294,7 +306,7 @@ async function spawnChildLegacy(
       // Constitution file not found
     }
 
-    const initResult = await childConway.exec("node /root/automaton/dist/index.js --init 2>&1", 60_000);
+    const initResult = await run("node /root/automaton/dist/index.js --init 2>&1", 60_000);
     const legacyParentChainType = genesis.chainType || (identity as any).chainType || "evm";
     const legacyEvmMatch = (initResult.stdout || "").match(/0x[a-fA-F0-9]{40}/);
     const legacySolMatch = (initResult.stdout || "").match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);

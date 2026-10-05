@@ -21,6 +21,7 @@ import type {
 import { ModelRegistry } from "./registry.js";
 import { InferenceBudgetTracker } from "./budget.js";
 import { DEFAULT_ROUTING_MATRIX, TASK_TIMEOUTS } from "./types.js";
+import { DEFAULT_MODEL_STRATEGY_CONFIG } from "../types.js";
 
 type Database = BetterSqlite3.Database;
 
@@ -195,6 +196,11 @@ export class InferenceRouter {
     };
 
     const tierRank = TIER_ORDER[tier] ?? 0;
+    const configured = this.registry.get(this.budget.config.inferenceModel);
+    if (configured?.enabled && this.budget.config.inferenceModel !== DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel) {
+      const free = configured.costPer1kInput === 0 && configured.costPer1kOutput === 0;
+      if (free || tierRank >= (TIER_ORDER[configured.tierMinimum] ?? 0)) return configured;
+    }
 
     // 1. Try routing-matrix candidates
     const preference = this.getPreference(tier, taskType);

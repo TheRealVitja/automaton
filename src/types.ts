@@ -517,6 +517,7 @@ export interface PolicyRequest {
   turnContext: {
     inputSource: InputSource | undefined;
     turnToolCallCount: number;
+    creditBalanceCents?: number;
     sessionSpend: SpendTrackerInterface;
   };
 }
