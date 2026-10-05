@@ -119,3 +119,19 @@ eine Schätzung und garantiert keine exakte Tokenzahl für jeden Tokenizer.
 Die Einzelbefunde und Codebelege stehen in [UPSTREAM-ISSUES.md](UPSTREAM-ISSUES.md).
 Der Bericht ist offline mit `python3 scripts/triage-upstream-issues.py`
 aus dem archivierten Snapshot reproduzierbar.
+
+## Ergänzung: SIWS-Domainfehler (#373)
+
+Der Solana-Login signierte bisher dieselbe feste Domain `conway.tech` wie SIWE.
+Eine begrenzte Live-Diagnose mit absichtlich ungültigen Signaturen bestätigte:
+`conway.tech` wird mit HTTP 400 `Domain mismatch` abgelehnt;
+`api.conway.tech` passiert diese Prüfung und erreicht die Nonceprüfung (HTTP 401).
+Der Nonce-Endpunkt liefert keine erwartete Domain mit.
+
+SIWS signiert jetzt die Authority der eingestellten API-URL, einschließlich
+eines benutzerdefinierten Ports. SIWE behält seine bisherige Domain. Drei neue
+Regressionstests prüfen beide SIWS-Varianten und die bestehende EVM-Anmeldung;
+die gezielte Suite mit SIWS-Signaturtests umfasst neun erfolgreiche Tests.
+Runtime und CLI bauen erfolgreich. Es wurde keine echte Wallet angemeldet und
+kein API-Key erzeugt; nach der Domainkorrektur können separate Backendfehler
+bei Nonce-/Signaturprüfung weiterhin auftreten.

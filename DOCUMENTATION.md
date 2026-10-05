@@ -129,7 +129,16 @@ Private key stored at: /root/.automaton/wallet.json
 
 ### Step 2: API Key Provisioning
 
-The runtime signs a SIWE (Sign-In With Ethereum) message to authenticate with Conway's API and receive an API key. If auto-provisioning fails, you can enter a key manually.
+The runtime signs a SIWE (Sign-In With Ethereum) or SIWS (Sign-In With Solana)
+message, depending on the selected wallet chain, to authenticate with Conway's
+API and receive an API key. If auto-provisioning fails, you can enter a key manually.
+
+SIWS uses the configured API authority as its signed domain (normally
+`api.conway.tech`). Older builds signed `conway.tech`, which the SIWS endpoint
+rejects with `400 {"error":"Domain mismatch"}`. Rebuild with `npm run build`
+and retry with `node dist/index.js --provision`; keep the existing wallet.
+An `Invalid or expired nonce` or `Database error` after this correction is a
+separate verification failure and may still require a Conway backend fix.
 
 ```
 [2/6] Provisioning Conway API key (SIWE)...

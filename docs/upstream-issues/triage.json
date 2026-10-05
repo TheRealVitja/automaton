@@ -1172,9 +1172,9 @@
     "html_url": "https://github.com/Conway-Research/automaton/issues/373",
     "group": "Installation und Plattform",
     "priority": "P2",
-    "verdict": "Bestätigt; Pfade repariert",
-    "evidence": "HOME || /root war unter Windows falsch; identische Fallbacks in Wallet, Konfiguration, CLI, Soul und Skills.",
-    "action": "os.homedir konsistent verwenden. In #355 gemeldete frische-Nonce-401 ist getrennt serverseitig; Linux-Shellwerkzeuge werden dadurch nicht zu Windows-Kommandos."
+    "verdict": "Bestätigt; Pfade und SIWS-Domain repariert",
+    "evidence": "Windows-HOME-Fallback erzeugte eine zweite Wallet. Der daneben gemeldete SIWS-Domainfehler war unabhängig davon reproduzierbar: conway.tech wurde vom Verifier mit Domain mismatch abgewiesen; api.conway.tech passierte die Domainprüfung und erreichte die Nonceprüfung.",
+    "action": "os.homedir konsistent verwenden; SIWS-Domain aus der eingestellten API-Authority ableiten, SIWE-Domain beibehalten. Drei Regressionstests prüfen Standard-API, benutzerdefinierten Host/Port und EVM. Mit ungültigen Testsignaturen wurde nur die Domainprüfung eingegrenzt, keine erfolgreiche Provisionierung belegt."
   },
   {
     "number": 182,

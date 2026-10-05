@@ -104,7 +104,7 @@ Maßnahme: Gespeicherte sandboxId prüfen. Logs zeigen weiterhin nur einen Aussc
 | [#285: VM was not able to install runtime](https://github.com/Conway-Research/automaton/issues/285) | open | P2 | Ressourcen-/Deploymentproblem |
 | [#350: Test suite fails with ENOENT when the repo path contains a space (URL.pathname percent-encoding in source-safety specs)](https://github.com/Conway-Research/automaton/issues/350) | open | P2 | Bestätigt; repariert |
 | [#355: Windows: HOME env var defaults to /root causing invalid paths; SIWE provisioning fails with "Invalid or expired nonce" on --provision](https://github.com/Conway-Research/automaton/issues/355) | open | P2 | Bestätigt; Pfade repariert |
-| [#373: Windows: HOME is unset, so wallet and config land in C:\root\.automaton instead of the user profile](https://github.com/Conway-Research/automaton/issues/373) | open | P2 | Bestätigt; Pfade repariert |
+| [#373: Windows: HOME is unset, so wallet and config land in C:\root\.automaton instead of the user profile](https://github.com/Conway-Research/automaton/issues/373) | open | P2 | Bestätigt; Pfade und SIWS-Domain repariert |
 
 **#47, #279** — npm run build rief ein nicht installiertes pnpm auf; package-lock enthielt nur TypeScript und Version 0.1.0.
 
@@ -126,9 +126,13 @@ Maßnahme: Auf größerem Builder bauen und fertige dist-Artefakte ausliefern; V
 
 Maßnahme: fileURLToPath verwenden; beide Testdateien zusätzlich aus einer Kopie mit Leerzeichen im Pfad ausführen.
 
-**#355, #373** — HOME || /root war unter Windows falsch; identische Fallbacks in Wallet, Konfiguration, CLI, Soul und Skills.
+**#355** — HOME || /root war unter Windows falsch; identische Fallbacks in Wallet, Konfiguration, CLI, Soul und Skills.
 
 Maßnahme: os.homedir konsistent verwenden. In #355 gemeldete frische-Nonce-401 ist getrennt serverseitig; Linux-Shellwerkzeuge werden dadurch nicht zu Windows-Kommandos.
+
+**#373** — Windows-HOME-Fallback erzeugte eine zweite Wallet. Der daneben gemeldete SIWS-Domainfehler war unabhängig davon reproduzierbar: conway.tech wurde vom Verifier mit Domain mismatch abgewiesen; api.conway.tech passierte die Domainprüfung und erreichte die Nonceprüfung.
+
+Maßnahme: os.homedir konsistent verwenden; SIWS-Domain aus der eingestellten API-Authority ableiten, SIWE-Domain beibehalten. Drei Regressionstests prüfen Standard-API, benutzerdefinierten Host/Port und EVM. Mit ungültigen Testsignaturen wurde nur die Domainprüfung eingegrenzt, keine erfolgreiche Provisionierung belegt.
 
 ## Netzwerk und SSRF
 

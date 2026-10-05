@@ -103,9 +103,12 @@ assign([47,279], 'Installation und Plattform', 'P1', 'Bestätigt; repariert',
 assign([68], 'Installation und Plattform', 'P2', 'Bereits behoben; weitere Buildfehler repariert',
        'tsconfig schließt src/__tests__ bereits aus; @types/better-sqlite3 liegt in dependencies. Zusätzlicher pnpm-Build-Blocker entspricht #47.',
        'Typecheck und beide Builds prüfen; #47 repariert npm-Quickstart.')
-assign([355,373], 'Installation und Plattform', 'P2', 'Bestätigt; Pfade repariert',
+assign([355], 'Installation und Plattform', 'P2', 'Bestätigt; Pfade repariert',
        'HOME || /root war unter Windows falsch; identische Fallbacks in Wallet, Konfiguration, CLI, Soul und Skills.',
        'os.homedir konsistent verwenden. In #355 gemeldete frische-Nonce-401 ist getrennt serverseitig; Linux-Shellwerkzeuge werden dadurch nicht zu Windows-Kommandos.')
+assign([373], 'Installation und Plattform', 'P2', 'Bestätigt; Pfade und SIWS-Domain repariert',
+       'Windows-HOME-Fallback erzeugte eine zweite Wallet. Der daneben gemeldete SIWS-Domainfehler war unabhängig davon reproduzierbar: conway.tech wurde vom Verifier mit Domain mismatch abgewiesen; api.conway.tech passierte die Domainprüfung und erreichte die Nonceprüfung.',
+       'os.homedir konsistent verwenden; SIWS-Domain aus der eingestellten API-Authority ableiten, SIWE-Domain beibehalten. Drei Regressionstests prüfen Standard-API, benutzerdefinierten Host/Port und EVM. Mit ungültigen Testsignaturen wurde nur die Domainprüfung eingegrenzt, keine erfolgreiche Provisionierung belegt.')
 assign([165], 'Installation und Plattform', 'P2', 'Architektur-/Plattformgrenze',
        'Walletpfade werden repariert, aber exec ist ein POSIX-Shellwerkzeug und übersetzt ls -la nicht für Windows cmd.',
        'Runtime unter Linux/WSL betreiben; native Windows-Ausführung benötigt einen expliziten Shelladapter und separate Plattformtests.')

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { provision } from "../identity/provision.js";
+import type { ChainIdentity } from "../identity/chain.js";
 
 vi.mock("../identity/wallet.js", () => ({
   getWallet: async () => ({
@@ -26,5 +27,35 @@ describe("single-use provisioning nonce", () => {
       .mockRejectedValueOnce(new Error("connection lost"));
     await expect(provision("https://example.com")).rejects.toThrow("connection lost");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("SIWS authentication domain", () => {
+  it.each([
+    ["https://api.conway.tech", "api.conway.tech"],
+    ["https://auth.example.com:8443", "auth.example.com:8443"],
+  ])("signs the API authority for %s", async (apiUrl, domain) => {
+    const signMessage = vi.fn().mockResolvedValue("test-signature");
+    const identity = {
+      address: "11111111111111111111111111111111", chainType: "solana", signMessage,
+    } as unknown as ChainIdentity;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{"nonce":"s123456789"}'))
+      .mockResolvedValueOnce(new Response('{"error":"Invalid signature"}', { status: 401 }));
+    await expect(provision(apiUrl, identity)).rejects.toThrow("SIWS verification failed: 401");
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string);
+    expect(body.chain_type).toBe("solana");
+    expect(body.message).toMatch(new RegExp(`^${domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} wants you to sign in`));
+    expect(body.message).toContain(`URI: ${apiUrl}/v1/auth/verify`);
+    expect(body.signature).toBe("test-signature");
+    expect(signMessage).toHaveBeenCalledWith(body.message);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("preserves the EVM SIWE application domain", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{"nonce":"e123456789"}'))
+      .mockResolvedValueOnce(new Response('{"error":"Invalid signature"}', { status: 401 }));
+    await expect(provision("https://api.conway.tech")).rejects.toThrow("SIWE verification failed: 401");
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string);
+    expect(body.message.startsWith("conway.tech wants you to sign in with your Ethereum account:")).toBe(true);
+    expect(body.chain_type).toBeUndefined();
   });
 });

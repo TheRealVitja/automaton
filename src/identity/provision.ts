@@ -72,6 +72,9 @@ export async function provision(
   const identity = solanaIdentity || chainIdentity;
   const address = identity.address;
   const isSolana = identity.chainType === "solana";
+  // Conway's SIWS verifier expects the API authority, including a custom
+  // deployment's port. The SIWE flow uses its existing application domain.
+  const authDomain = isSolana ? new URL(url).host : "conway.tech";
 
   // 2. Get nonce
   const nonceResp = await httpClient.request(`${url}/v1/auth/nonce`, {
@@ -90,7 +93,7 @@ export async function provision(
   if (isSolana) {
     // 3a. SIWS path: Sign-In With Solana
     const siwsMsg = buildSiwsMessage({
-      domain: "conway.tech",
+      domain: authDomain,
       address,
       statement: "Sign in to Conway as an Automaton to provision an API key.",
       uri: `${url}/v1/auth/verify`,
